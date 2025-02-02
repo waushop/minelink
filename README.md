@@ -37,6 +37,46 @@ To run the proxy, follow these steps:
    ./minelink
    ```
 
+## Running the Proxy with Docker
+To build and run the proxy using Docker, follow these steps:
+1. Clone the repository:
+   ```
+   git clone https://github.com/waushop/minelink.git
+   ```
+2. Change to the project directory:
+   ```
+   cd minelink
+   ```
+3. Build the Docker image:
+   ```
+   docker build -t minelink .
+   ```
+4. Run the Docker container:
+   ```
+   docker run -e SERVER_ADDRESS="your_server_address:19132" -e PROXY_PORT="19133" -e BROADCAST_IP="255.255.255.255:19132" -p 19133:19133 minelink
+   ```
+
+## Running the Proxy with Docker Compose
+To build and run the proxy using Docker Compose, follow these steps:
+1. Clone the repository:
+   ```
+   git clone https://github.com/waushop/minelink.git
+   ```
+2. Change to the project directory:
+   ```
+   cd minelink
+   ```
+3. Create a `.env` file with the following content:
+   ```
+   SERVER_ADDRESS=your_server_address:19132
+   PROXY_PORT=19133
+   BROADCAST_IP=255.255.255.255:19132
+   ```
+4. Start the service using Docker Compose:
+   ```
+   docker-compose up --build
+   ```
+
 ## Contributing
 We welcome contributions to the project! If you would like to contribute, please follow these steps:
 1. Fork the repository on GitHub.
