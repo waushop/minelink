@@ -25,13 +25,17 @@ To run the proxy, follow these steps:
    ```
    cd minelink
    ```
-3. Set the environment variables as needed:
+3. Initialize the Go module:
+   ```
+   go mod init minelink
+   ```
+4. Set the environment variables as needed:
    ```
    export SERVER_ADDRESS="your_server_address:19132"
    export PROXY_PORT="19133"
    export BROADCAST_IP="255.255.255.255:19132"
    ```
-4. Build and run the proxy:
+5. Build and run the proxy:
    ```
    go build -o minelink
    ./minelink
