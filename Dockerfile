@@ -1,14 +1,16 @@
-# Use golang:1.20 as the base image
-FROM golang:1.20
+FROM golang:1.21-alpine AS builder
 
-# Set the working directory to /app
 WORKDIR /app
-
-# Copy the project files into the container
 COPY . .
+RUN go build -o minecraft-bridge main.go
 
-# Build the Go application
-RUN go build -o minelink
+FROM alpine:latest
+WORKDIR /app
+COPY --from=builder /app/minecraft-bridge .
 
-# Set the entrypoint
-ENTRYPOINT ["./minelink"]
+EXPOSE 19132/udp
+EXPOSE 19132/tcp
+
+VOLUME /app/config
+
+CMD ["/app/minecraft-bridge", "--config", "/app/config/config.json"]
