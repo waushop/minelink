@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -34,33 +35,42 @@ func init() {
 func main() {
 	flag.Parse()
 
+	// Load configuration
 	if err := loadConfig(); err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
+	// Set up logging
 	if config.Debug {
 		log.Println("Debug mode enabled")
 		log.Printf("Configuration: %+v", config)
 	}
 
-	log.Printf("Starting Minecraft LAN Bridge for PS4 -> %s:%d", config.TargetServerIP, config.TargetServerPort)
+	// Start the bridge service
+	log.Printf("Starting PS4 Minecraft bridge to %s:%d", config.TargetServerIP, config.TargetServerPort)
 
+	// Start UDP listener for LAN broadcast responses
 	go startUDPListener()
+
+	// Start broadcasting service presence
 	go broadcastService()
+
+	// Start TCP proxy server
 	startTCPProxy()
 }
 
-// Loads the configuration from a file or creates a default config
 func loadConfig() error {
+	// Default configuration
 	config = Config{
 		LocalAddress:      "0.0.0.0",
-		TargetServerIP:    "192.168.1.213", // Change to your Minecraft server IP
+		TargetServerIP:    "127.0.0.1",
 		TargetServerPort:  19132,
 		BroadcastInterval: 5,
-		ServerName:        "Epic World",
-		Debug:             true,
+		ServerName:        "PS4 Minecraft Bridge",
+		Debug:             false,
 	}
 
+	// Try to load from file
 	file, err := os.Open(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -76,7 +86,6 @@ func loadConfig() error {
 	return decoder.Decode(&config)
 }
 
-// Saves the configuration file
 func saveConfig() error {
 	file, err := os.Create(configPath)
 	if err != nil {
@@ -89,7 +98,6 @@ func saveConfig() error {
 	return encoder.Encode(config)
 }
 
-// Broadcasts a fake LAN server announcement to trick the PS4
 func broadcastService() {
 	addr, err := net.ResolveUDPAddr("udp", "255.255.255.255:19132")
 	if err != nil {
@@ -98,11 +106,11 @@ func broadcastService() {
 
 	conn, err := net.DialUDP("udp", nil, addr)
 	if err != nil {
-		log.Fatalf("Failed to create UDP broadcast connection: %v", err)
+		log.Fatalf("Failed to create UDP connection: %v", err)
 	}
 	defer conn.Close()
 
-	log.Println("Broadcasting LAN server presence...")
+	log.Println("Broadcasting server presence...")
 
 	for {
 		packet := createBroadcastPacket()
@@ -120,7 +128,6 @@ func broadcastService() {
 	}
 }
 
-// Creates a fake LAN server broadcast packet
 func createBroadcastPacket() []byte {
 	magic := []byte{0xFE}
 	serverInfo := []byte(config.ServerName)
@@ -133,11 +140,10 @@ func createBroadcastPacket() []byte {
 	return packet
 }
 
-// Listens for UDP queries from the PS4 and forwards them to the real server
 func startUDPListener() {
 	addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:19132", config.LocalAddress))
 	if err != nil {
-		log.Fatalf("Failed to resolve UDP listener address: %v", err)
+		log.Fatalf("Failed to resolve listen address: %v", err)
 	}
 
 	conn, err := net.ListenUDP("udp", addr)
@@ -146,7 +152,7 @@ func startUDPListener() {
 	}
 	defer conn.Close()
 
-	log.Printf("Listening for UDP queries on %s:19132", config.LocalAddress)
+	log.Printf("UDP listener started on %s:19132", config.LocalAddress)
 
 	buffer := make([]byte, 1500)
 	for {
@@ -165,9 +171,13 @@ func startUDPListener() {
 }
 
 func handleUDPPacket(conn *net.UDPConn, clientAddr *net.UDPAddr, packet []byte) {
+	if len(packet) == 0 {
+		return
+	}
+
 	targetAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", config.TargetServerIP, config.TargetServerPort))
 	if err != nil {
-		log.Printf("Failed to resolve target server address: %v", err)
+		log.Printf("Failed to resolve target address: %v", err)
 		return
 	}
 
@@ -180,14 +190,21 @@ func handleUDPPacket(conn *net.UDPConn, clientAddr *net.UDPAddr, packet []byte) 
 
 	_, err = targetConn.Write(packet)
 	if err != nil {
-		log.Printf("Failed to forward UDP packet: %v", err)
+		log.Printf("Failed to forward packet to target: %v", err)
 		return
 	}
 
 	targetBuffer := make([]byte, 1500)
+	targetConn.SetReadDeadline(time.Now().Add(2 * time.Second))
 	n, _, err := targetConn.ReadFromUDP(targetBuffer)
 	if err != nil {
-		log.Printf("Failed to read response from target: %v", err)
+		if strings.Contains(err.Error(), "timeout") {
+			if config.Debug {
+				log.Printf("Timeout waiting for response from target server")
+			}
+		} else {
+			log.Printf("Failed to read response from target: %v", err)
+		}
 		return
 	}
 
@@ -197,7 +214,6 @@ func handleUDPPacket(conn *net.UDPConn, clientAddr *net.UDPAddr, packet []byte) 
 	}
 }
 
-// Starts a TCP proxy to forward connections to the external server
 func startTCPProxy() {
 	listener, err := net.Listen("tcp", fmt.Sprintf("%s:19132", config.LocalAddress))
 	if err != nil {
@@ -205,7 +221,7 @@ func startTCPProxy() {
 	}
 	defer listener.Close()
 
-	log.Printf("TCP proxy running on %s:19132", config.LocalAddress)
+	log.Printf("TCP proxy started on %s:19132", config.LocalAddress)
 
 	for {
 		client, err := listener.Accept()
@@ -214,6 +230,7 @@ func startTCPProxy() {
 			continue
 		}
 
+		log.Printf("New TCP connection from %s", client.RemoteAddr())
 		go handleTCPConnection(client)
 	}
 }
@@ -228,7 +245,12 @@ func handleTCPConnection(client net.Conn) {
 	}
 	defer target.Close()
 
-	go func() { copyData(target, client) }()
+	go func() {
+		defer client.Close()
+		defer target.Close()
+		copyData(target, client)
+	}()
+
 	copyData(client, target)
 }
 
@@ -239,6 +261,10 @@ func copyData(dst, src net.Conn) {
 		if err != nil {
 			return
 		}
-		dst.Write(buffer[:n])
+
+		_, err = dst.Write(buffer[:n])
+		if err != nil {
+			return
+		}
 	}
 }
