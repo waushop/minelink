@@ -1,18 +1,20 @@
 # Stage 1: Build the Go binary
-FROM golang:1.21 AS builder
+FROM golang:1.24 AS builder
 
 WORKDIR /app
-COPY go.mod go.sum ./
-RUN go mod download
+COPY go.mod ./
+# Only try to copy go.sum if it exists
+COPY go.sum* ./
+RUN go mod download || true
 
 COPY . .
-RUN go build -o minecraft-bridge main.go
+RUN go build -o minelink main.go
 
 # Stage 2: Create minimal runtime image
 FROM alpine:latest
 
 WORKDIR /app
-COPY --from=builder /app/minecraft-bridge /app/minecraft-bridge
+COPY --from=builder /app/minelink /app/minelink
 
 # Expose Minecraft Bedrock Server Ports
 EXPOSE 19132/udp
@@ -22,7 +24,7 @@ EXPOSE 19132/tcp
 VOLUME ["/app/config"]
 
 # Ensure the binary has execution permission
-RUN chmod +x /app/minecraft-bridge
+RUN chmod +x /app/minelink
 
 # Set entrypoint
-CMD ["/app/minecraft-bridge", "--config", "/app/config/config.json"]
+CMD ["/app/minelink", "--config", "/app/config/config.json"]

@@ -1,19 +1,35 @@
 # MineLink 🎮
-Simple and effective, linking Bedrock players across networks
+A bridge for connecting Minecraft Bedrock Edition console/mobile clients to a Minecraft Bedrock server
 
 ## Purpose
 The purpose of this project is to provide a simple and effective proxy for Minecraft Bedrock Edition, allowing players to connect across different networks. The proxy broadcasts a fake LAN game and forwards packets between clients and the actual server.
 
 ## Features
-- Broadcasts a fake LAN game to allow clients to discover the server
-- Forwards packets between clients and the actual server
-- Configurable server address, proxy port, and broadcast IP using environment variables
+- Broadcasts a fake LAN game to allow clients to discover the server in the Friends tab
+- Forwards UDP and TCP packets between clients and the actual server
+- Fully configurable through JSON configuration file
+- Graceful shutdown on interrupt
 
 ## Configuration
-To configure the proxy, you can set the following environment variables:
-- `SERVER_ADDRESS`: The address of the actual Minecraft Bedrock server (default: `YOUR_EXTERNAL_SERVER_IP:19132`)
-- `PROXY_PORT`: The port for the proxy to listen on (default: `19133`)
-- `BROADCAST_IP`: The IP address for broadcasting the fake LAN game (default: `255.255.255.255:19132`)
+Edit `config/config.json` to match your setup:
+
+```json
+{
+  "local_address": "0.0.0.0",
+  "target_server_ip": "192.168.1.213",
+  "target_server_port": 19132,
+  "broadcast_interval": 5,
+  "server_name": "Epic World",
+  "debug": true
+}
+```
+
+- `local_address`: IP address to bind to (0.0.0.0 = all interfaces)
+- `target_server_ip`: The IP address of your actual Bedrock server
+- `target_server_port`: The port your Bedrock server is running on (default 19132)
+- `broadcast_interval`: How often to broadcast the server's presence in seconds
+- `server_name`: The name shown in the console friends tab
+- `debug`: Whether to enable debug logging
 
 ## Running the Proxy
 To run the proxy, follow these steps:
@@ -25,19 +41,19 @@ To run the proxy, follow these steps:
    ```
    cd minelink
    ```
-3. Set the environment variables as needed:
-   ```
-   export SERVER_ADDRESS="your_server_address:19132"
-   export PROXY_PORT="19133"
-   export BROADCAST_IP="255.255.255.255:19132"
-   ```
+3. Edit `config/config.json` to match your setup
 4. Build and run the proxy:
    ```
    go build -o minelink
    ./minelink
    ```
 
-## Running the Proxy with Docker
+You can specify a custom config path:
+```
+./minelink -config /path/to/config.json
+```
+
+## Running with Docker
 To build and run the proxy using Docker, follow these steps:
 1. Clone the repository:
    ```
@@ -47,16 +63,17 @@ To build and run the proxy using Docker, follow these steps:
    ```
    cd minelink
    ```
-3. Build the Docker image:
+3. Edit `config/config.json` to match your setup
+4. Build the Docker image:
    ```
    docker build -t minelink .
    ```
-4. Run the Docker container:
+5. Run the Docker container:
    ```
-   docker run -e SERVER_ADDRESS="your_server_address:19132" -e PROXY_PORT="19133" -e BROADCAST_IP="255.255.255.255:19132" -p 19133:19133 minelink
+   docker run -p 19132:19132/udp -p 19132:19132/tcp -v $(pwd)/config:/app/config minelink
    ```
 
-## Running the Proxy with Docker Compose
+## Running with Docker Compose
 To build and run the proxy using Docker Compose, follow these steps:
 1. Clone the repository:
    ```
@@ -66,15 +83,10 @@ To build and run the proxy using Docker Compose, follow these steps:
    ```
    cd minelink
    ```
-3. Create a `.env` file with the following content:
-   ```
-   SERVER_ADDRESS=your_server_address:19132
-   PROXY_PORT=19133
-   BROADCAST_IP=255.255.255.255:19132
-   ```
+3. Edit `config/config.json` to match your setup
 4. Start the service using Docker Compose:
    ```
-   docker-compose up --build
+   docker-compose up -d
    ```
 
 ## Contributing

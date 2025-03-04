@@ -7,8 +7,11 @@ import (
 	"log"
 	"net"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 )
 
@@ -47,16 +50,40 @@ func main() {
 	}
 
 	// Start the bridge service
-	log.Printf("Starting PS4 Minecraft bridge to %s:%d", config.TargetServerIP, config.TargetServerPort)
+	log.Printf("Starting Minecraft bridge to %s:%d", config.TargetServerIP, config.TargetServerPort)
+	log.Printf("Server name: %s", config.ServerName)
+
+	// Use a wait group to manage goroutines
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	// Set up a channel to handle signals for graceful shutdown
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
 	// Start UDP listener for LAN broadcast responses
-	go startUDPListener()
+	go func() {
+		defer wg.Done()
+		startUDPListener()
+	}()
 
 	// Start broadcasting service presence
-	go broadcastService()
+	go func() {
+		defer wg.Done()
+		broadcastService()
+	}()
 
-	// Start TCP proxy server
-	startTCPProxy()
+	// Start TCP proxy server in a separate goroutine
+	go startTCPProxy()
+
+	// Wait for termination signal
+	<-sigChan
+	log.Println("Received termination signal, shutting down...")
+	
+	// Wait for goroutines to finish (they won't actually finish due to infinite loops,
+	// but this sets up the structure for proper shutdown in the future)
+	wg.Wait()
+	log.Println("Server shutdown complete")
 }
 
 func loadConfig() error {
@@ -66,7 +93,7 @@ func loadConfig() error {
 		TargetServerIP:    "127.0.0.1",
 		TargetServerPort:  19132,
 		BroadcastInterval: 5,
-		ServerName:        "PS4 Minecraft Bridge",
+		ServerName:        "Minecraft Server",
 		Debug:             false,
 	}
 
@@ -74,6 +101,22 @@ func loadConfig() error {
 	file, err := os.Open(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
+			// Check if config exists in the config directory
+			if configPath == "config.json" {
+				altConfigPath := "config/config.json"
+				altFile, altErr := os.Open(altConfigPath)
+				if altErr == nil {
+					log.Printf("Loading config from %s", altConfigPath)
+					decoder := json.NewDecoder(altFile)
+					err = decoder.Decode(&config)
+					altFile.Close()
+					if err == nil {
+						return nil
+					}
+					log.Printf("Error parsing config from %s: %v", altConfigPath, err)
+				}
+			}
+			
 			log.Println("Config file not found, creating default config")
 			saveConfig()
 			return nil
@@ -83,7 +126,14 @@ func loadConfig() error {
 	defer file.Close()
 
 	decoder := json.NewDecoder(file)
-	return decoder.Decode(&config)
+	err = decoder.Decode(&config)
+	if err != nil {
+		log.Printf("Error parsing config: %v", err)
+		return err
+	}
+	
+	log.Printf("Loaded configuration from %s", configPath)
+	return nil
 }
 
 func saveConfig() error {
@@ -129,14 +179,45 @@ func broadcastService() {
 }
 
 func createBroadcastPacket() []byte {
-	magic := []byte{0xFE}
-	serverInfo := []byte(config.ServerName)
-	portBytes := []byte(strconv.Itoa(config.TargetServerPort))
-
-	packet := append(magic, serverInfo...)
-	packet = append(packet, ';')
-	packet = append(packet, portBytes...)
-
+	// Minecraft Bedrock uses specific format for LAN broadcasts
+	// See: https://wiki.vg/Raknet_Protocol#Unconnected_Ping
+	
+	// Unconnected Ping packet structure
+	magic := []byte{0x00, 0xFF, 0xFF, 0x00, 0xFE, 0xFE, 0xFE, 0xFE, 0xFD, 0xFD, 0xFD, 0xFD, 0x12, 0x34, 0x56, 0x78}
+	
+	// Current timestamp as int64
+	timestamp := time.Now().UnixNano() / int64(time.Millisecond)
+	timestampBytes := make([]byte, 8)
+	
+	// Convert timestamp to bytes (little endian)
+	for i := 0; i < 8; i++ {
+		timestampBytes[i] = byte(timestamp >> (i * 8))
+	}
+	
+	// Random client GUID
+	guid := []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
+	
+	// Server ID string with proper MOTD format
+	// Format: MCPE;<motd>;<protocol>;<version>;<players>;<max players>;<server id>;<subtitle>;<gamemode>;<default=1>;<port>;<port v6>
+	serverID := fmt.Sprintf("MCPE;%s;527;1.19.0;0;10;%d;Bedrock Server;Survival;1;%d;%d",
+		config.ServerName,
+		0, // Server unique ID
+		config.TargetServerPort,
+		config.TargetServerPort,
+	)
+	
+	// Build the packet
+	packet := []byte{0x1C} // Unconnected Ping packet ID
+	packet = append(packet, timestampBytes...)
+	packet = append(packet, magic...)
+	packet = append(packet, guid...)
+	
+	// Add server ID string with its length as a short
+	serverIDBytes := []byte(serverID)
+	serverIDLen := uint16(len(serverIDBytes))
+	packet = append(packet, byte(serverIDLen), byte(serverIDLen>>8))
+	packet = append(packet, serverIDBytes...)
+	
 	return packet
 }
 
@@ -175,6 +256,22 @@ func handleUDPPacket(conn *net.UDPConn, clientAddr *net.UDPAddr, packet []byte) 
 		return
 	}
 
+	// Check if this is a ping packet (ID 0x01) and respond with our broadcast packet
+	if len(packet) > 0 && packet[0] == 0x01 {
+		if config.Debug {
+			log.Printf("Received ping packet from %s, sending LAN broadcast response", clientAddr.String())
+		}
+		
+		// Send our broadcast packet directly to the client
+		response := createBroadcastPacket()
+		_, err := conn.WriteToUDP(response, clientAddr)
+		if err != nil {
+			log.Printf("Failed to send ping response to client: %v", err)
+		}
+		return
+	}
+
+	// For all other packets, forward to the target server
 	targetAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", config.TargetServerIP, config.TargetServerPort))
 	if err != nil {
 		log.Printf("Failed to resolve target address: %v", err)
@@ -188,29 +285,45 @@ func handleUDPPacket(conn *net.UDPConn, clientAddr *net.UDPAddr, packet []byte) 
 	}
 	defer targetConn.Close()
 
+	if config.Debug {
+		log.Printf("Forwarding %d bytes to target server %s:%d", len(packet), config.TargetServerIP, config.TargetServerPort)
+	}
+
 	_, err = targetConn.Write(packet)
 	if err != nil {
 		log.Printf("Failed to forward packet to target: %v", err)
 		return
 	}
 
+	// Set a deadline for reading the response
 	targetBuffer := make([]byte, 1500)
 	targetConn.SetReadDeadline(time.Now().Add(2 * time.Second))
-	n, _, err := targetConn.ReadFromUDP(targetBuffer)
-	if err != nil {
-		if strings.Contains(err.Error(), "timeout") {
-			if config.Debug {
-				log.Printf("Timeout waiting for response from target server")
+	
+	// Read and forward all responses within the deadline
+	for {
+		n, _, err := targetConn.ReadFromUDP(targetBuffer)
+		if err != nil {
+			// If we got a timeout, that's normal - just exit the loop
+			if strings.Contains(err.Error(), "timeout") {
+				if config.Debug {
+					log.Printf("Read timeout - finished processing responses")
+				}
+				break
 			}
-		} else {
+			
 			log.Printf("Failed to read response from target: %v", err)
+			break
 		}
-		return
-	}
 
-	_, err = conn.WriteToUDP(targetBuffer[:n], clientAddr)
-	if err != nil {
-		log.Printf("Failed to send response to client: %v", err)
+		if config.Debug {
+			log.Printf("Received %d bytes from target, forwarding to client", n)
+		}
+
+		_, err = conn.WriteToUDP(targetBuffer[:n], clientAddr)
+		if err != nil {
+			log.Printf("Failed to send response to client: %v", err)
+			break
+		}
 	}
 }
 

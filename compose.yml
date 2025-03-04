@@ -1,16 +1,13 @@
 version: "3.8"
 
 services:
-  minecraft-bridge:
-    container_name: minecraft-bridge
-    image: minecraft-bridge:latest
+  minelink:
+    container_name: minelink
+    image: minelink:latest
     build: .
     restart: unless-stopped
-    network_mode: "host"
     volumes:
       - ./config:/app/config
     ports:
       - "19132:19132/udp"
       - "19132:19132/tcp"
-    environment:
-      - DEBUG=true
