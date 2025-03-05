@@ -8,7 +8,6 @@ import (
 	"net"
 	"os"
 	"os/signal"
-	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -79,7 +78,7 @@ func main() {
 	// Wait for termination signal
 	<-sigChan
 	log.Println("Received termination signal, shutting down...")
-	
+
 	// Wait for goroutines to finish (they won't actually finish due to infinite loops,
 	// but this sets up the structure for proper shutdown in the future)
 	wg.Wait()
@@ -116,7 +115,7 @@ func loadConfig() error {
 					log.Printf("Error parsing config from %s: %v", altConfigPath, err)
 				}
 			}
-			
+
 			log.Println("Config file not found, creating default config")
 			saveConfig()
 			return nil
@@ -131,7 +130,7 @@ func loadConfig() error {
 		log.Printf("Error parsing config: %v", err)
 		return err
 	}
-	
+
 	log.Printf("Loaded configuration from %s", configPath)
 	return nil
 }
@@ -181,43 +180,43 @@ func broadcastService() {
 func createBroadcastPacket() []byte {
 	// Minecraft Bedrock uses specific format for LAN broadcasts
 	// See: https://wiki.vg/Raknet_Protocol#Unconnected_Ping
-	
+
 	// Unconnected Ping packet structure
 	magic := []byte{0x00, 0xFF, 0xFF, 0x00, 0xFE, 0xFE, 0xFE, 0xFE, 0xFD, 0xFD, 0xFD, 0xFD, 0x12, 0x34, 0x56, 0x78}
-	
+
 	// Current timestamp as int64
 	timestamp := time.Now().UnixNano() / int64(time.Millisecond)
 	timestampBytes := make([]byte, 8)
-	
+
 	// Convert timestamp to bytes (little endian)
 	for i := 0; i < 8; i++ {
 		timestampBytes[i] = byte(timestamp >> (i * 8))
 	}
-	
+
 	// Random client GUID
 	guid := []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
-	
+
 	// Server ID string with proper MOTD format
 	// Format: MCPE;<motd>;<protocol>;<version>;<players>;<max players>;<server id>;<subtitle>;<gamemode>;<default=1>;<port>;<port v6>
-	serverID := fmt.Sprintf("MCPE;%s;527;1.19.0;0;10;%d;Bedrock Server;Survival;1;%d;%d",
+	serverID := fmt.Sprintf("MCPE;%s;662;1.21.62;0;10;%d;Bedrock Server;Survival;1;%d;%d",
 		config.ServerName,
 		0, // Server unique ID
 		config.TargetServerPort,
 		config.TargetServerPort,
 	)
-	
+
 	// Build the packet
 	packet := []byte{0x1C} // Unconnected Ping packet ID
 	packet = append(packet, timestampBytes...)
 	packet = append(packet, magic...)
 	packet = append(packet, guid...)
-	
+
 	// Add server ID string with its length as a short
 	serverIDBytes := []byte(serverID)
 	serverIDLen := uint16(len(serverIDBytes))
 	packet = append(packet, byte(serverIDLen), byte(serverIDLen>>8))
 	packet = append(packet, serverIDBytes...)
-	
+
 	return packet
 }
 
@@ -261,7 +260,7 @@ func handleUDPPacket(conn *net.UDPConn, clientAddr *net.UDPAddr, packet []byte) 
 		if config.Debug {
 			log.Printf("Received ping packet from %s, sending LAN broadcast response", clientAddr.String())
 		}
-		
+
 		// Send our broadcast packet directly to the client
 		response := createBroadcastPacket()
 		_, err := conn.WriteToUDP(response, clientAddr)
@@ -298,7 +297,7 @@ func handleUDPPacket(conn *net.UDPConn, clientAddr *net.UDPAddr, packet []byte) 
 	// Set a deadline for reading the response
 	targetBuffer := make([]byte, 1500)
 	targetConn.SetReadDeadline(time.Now().Add(2 * time.Second))
-	
+
 	// Read and forward all responses within the deadline
 	for {
 		n, _, err := targetConn.ReadFromUDP(targetBuffer)
@@ -310,7 +309,7 @@ func handleUDPPacket(conn *net.UDPConn, clientAddr *net.UDPAddr, packet []byte) 
 				}
 				break
 			}
-			
+
 			log.Printf("Failed to read response from target: %v", err)
 			break
 		}

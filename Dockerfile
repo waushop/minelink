@@ -3,8 +3,6 @@ FROM golang:1.24 AS builder
 
 WORKDIR /app
 COPY go.mod ./
-# Only try to copy go.sum if it exists
-COPY go.sum* ./
 RUN go mod download || true
 
 COPY . .
@@ -15,6 +13,7 @@ FROM alpine:latest
 
 WORKDIR /app
 COPY --from=builder /app/minelink /app/minelink
+COPY --from=builder /app/config /app/config
 
 # Expose Minecraft Bedrock Server Ports
 EXPOSE 19132/udp
@@ -25,6 +24,9 @@ VOLUME ["/app/config"]
 
 # Ensure the binary has execution permission
 RUN chmod +x /app/minelink
+
+# Add necessary libraries
+RUN apk add --no-cache libc6-compat
 
 # Set entrypoint
 CMD ["/app/minelink", "--config", "/app/config/config.json"]
