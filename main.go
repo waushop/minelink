@@ -198,7 +198,8 @@ func createBroadcastPacket() []byte {
 
 	// Server ID string with proper MOTD format
 	// Format: MCPE;<motd>;<protocol>;<version>;<players>;<max players>;<server id>;<subtitle>;<gamemode>;<default=1>;<port>;<port v6>
-	serverID := fmt.Sprintf("MCPE;%s;662;1.21.62;0;10;%d;Bedrock Server;Survival;1;%d;%d",
+	// Using older protocol for PS4 compatibility
+	serverID := fmt.Sprintf("MCPE;%s;475;1.18.0;0;10;%d;Bedrock Server;Survival;1;%d;%d",
 		config.ServerName,
 		0, // Server unique ID
 		config.TargetServerPort,

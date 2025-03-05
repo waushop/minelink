@@ -6,8 +6,6 @@ services:
     image: minelink:latest
     build: .
     restart: unless-stopped
+    network_mode: host
     volumes:
       - ./config:/app/config
-    ports:
-      - "19132:19132/udp"
-      - "19132:19132/tcp"
